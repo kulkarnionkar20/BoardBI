@@ -1,0 +1,78 @@
+// BoardBI Prisma schema. SQLite for v0/v1; switch to Postgres by changing the
+// datasource provider and DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model JiraConnection {
+  id        String   @id @default(cuid())
+  name      String
+  baseUrl   String
+  email     String
+  // AES-GCM ciphertext, base64. iv:tag:ciphertext.
+  apiToken  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reports    Report[]
+  fieldCache FieldCache?
+}
+
+model Report {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  connectionId String
+  connection   JiraConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  jql          String   @default("")
+  // react-grid-layout array
+  layout       String   @default("[]")
+  // [{type, field, value}]
+  pageSlicers  String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  gadgets   Gadget[]
+  snapshots DatasetSnapshot[]
+}
+
+model Gadget {
+  id       String @id @default(cuid())
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  // "table" | "bar" | "pie" | "line" | "kpi"
+  type     String
+  // groupBy, aggField, aggFn, dateField, bucket, slicerOverrides
+  config   String @default("{}")
+  // grid-layout key (== id, kept explicit for clarity)
+  i        String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DatasetSnapshot {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  fetchedAt DateTime @default(now())
+  rowCount  Int
+  truncated Boolean  @default(false)
+  // raw JIRA issue array
+  rows      String
+
+  @@index([reportId, fetchedAt])
+}
+
+model FieldCache {
+  connectionId String   @id
+  connection   JiraConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  fetchedAt    DateTime @default(now())
+  // [{id, name, custom, schema}]
+  fields       String
+}
