@@ -10,6 +10,7 @@ import {
   useReports,
 } from "./useReports";
 import type { ExportFile } from "./types";
+import { JqlBuilderDialog } from "./JqlBuilderDialog";
 
 export function ReportsPage() {
   const { data: reports, isLoading } = useReports();
@@ -132,6 +133,7 @@ function NewReportForm() {
   const [name, setName] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [jql, setJql] = useState("");
+  const [builderOpen, setBuilderOpen] = useState(false);
 
   if (!connections) return null;
 
@@ -172,7 +174,17 @@ function NewReportForm() {
         </select>
       </div>
       <div className="field">
-        <label>JQL</label>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <label style={{ margin: 0 }}>JQL</label>
+          <button
+            type="button"
+            disabled={!connectionId}
+            title={connectionId ? "Build JQL with the query helper" : "Pick a connection first"}
+            onClick={() => setBuilderOpen(true)}
+          >
+            Build query
+          </button>
+        </div>
         <textarea
           value={jql}
           onChange={(e) => setJql(e.target.value)}
@@ -189,6 +201,13 @@ function NewReportForm() {
           Cancel
         </button>
       </div>
+      {builderOpen && connectionId && (
+        <JqlBuilderDialog
+          connectionId={connectionId}
+          onApply={(s) => setJql(s)}
+          onClose={() => setBuilderOpen(false)}
+        />
+      )}
     </form>
   );
 }

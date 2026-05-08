@@ -71,10 +71,10 @@ BoardBI/
 │       ├── db.ts                # PrismaClient singleton
 │       ├── jira/
 │       │   ├── crypto.ts        # AES-256-GCM
-│       │   └── client.ts        # /myself, /field, /search/jql with paging
+│       │   └── client.ts        # /myself, /field, /search/jql with paging + validateJql
 │       ├── middleware/auth.ts   # no-op seam for v2 auth
 │       └── routes/
-│           ├── connections.ts   # CRUD + /:id/test
+│           ├── connections.ts   # CRUD + /:id/test + /:id/validate-jql
 │           ├── reports.ts       # CRUD + /:id/data + /:id/data/latest + /export + /import
 │           └── fields.ts        # 24h FieldCache TTL
 └── src/
@@ -85,13 +85,14 @@ BoardBI/
     │   └── AppShell.tsx
     ├── features/
     │   ├── connections/         # connection CRUD UI + useFields hook
-    │   ├── reports/             # report list + create form + types
+    │   ├── reports/             # report list + create form + types + JqlBuilderDialog
     │   ├── report/              # SINGLE report editor (Toolbar, Canvas, SlicerBar, DrillThroughModal, TabBar, ReportTabsHost, ReportPage)
     │   ├── gadgets/             # one file per gadget type + registry.ts + config helpers
     │   └── slicers/             # one file per slicer type
     ├── lib/
     │   ├── api.ts               # ky pre-configured for /api
     │   ├── jqlFields.ts         # field id → group key / numeric / date / display value
+    │   ├── jqlBuilder.ts        # JQL builder types, operator table, buildJql, jqlEscape, jqlFieldRef
     │   ├── aggregate.ts         # groupAndAggregate, AggFn
     │   ├── dateBuckets.ts       # date range presets, Bucket, bucketIssueDate, rowsForDateBucket
     │   └── csv.ts               # RFC-4180-ish serializer
@@ -140,6 +141,19 @@ Reports can be exported to a JSON file and re-imported on any BoardBI install.
 - **Import**: `POST /api/reports/import` body `{ connectionId, file }`. Each imported report gets a fresh `cuid`; gadget IDs are regenerated and layout `i` keys remapped to match. Names are deduplicated with ` (imported)` / ` (imported 2)` suffixes. No field-existence validation — if the target JIRA instance is missing a referenced field, the next data refresh will surface the error.
 - **UI**: `ReportsPage` has per-row checkboxes, a bulk **Export selected** button, a per-row **Export** button, and an **Import…** button that opens an inline dialog (file picker + connection dropdown).
 - `connectionId` is always install-specific and is never included in the export. JIRA field IDs (`customfield_*`) inside gadget configs and slicer `field` values are JIRA-instance-specific; they round-trip fine when the same JIRA site is used on both ends.
+
+## JQL query builder
+
+The **Build query** button on the New Report form opens `JqlBuilderDialog`, a guided editor that produces a valid JQL string and writes it back into the JQL textarea (which remains editable for hand-tuning).
+
+- **Entry point**: `src/features/reports/ReportsPage.tsx` — `NewReportForm` mounts the dialog via `builderOpen` state; the button is disabled until a connection is selected.
+- **Builder logic**: `src/lib/jqlBuilder.ts` — types (`BuilderRow`, `BuilderState`, `OperatorId`, `FieldKind`), operator-per-kind table, `fieldKind`, `operatorsFor`, `jqlFieldRef`, `jqlEscape`, `buildJql`.
+  - Custom fields serialize as `cf[NNNNN]` (extracted from `customfield_NNNNN`), not by quoted name — immune to field renames.
+  - Values are quoted only when they contain spaces or special characters; simple alphanumerics are left bare (`project = APA`, not `project = "APA"`).
+  - Conditions are AND-only; an optional ORDER BY clause appends at the end.
+- **Validation**: `POST /api/connections/:id/validate-jql` (added to `server/src/routes/connections.ts`) runs the generated JQL against JIRA with `maxResults: 0` via `validateJql` in `server/src/jira/client.ts`. Returns `{ ok: true }` or `{ ok: false, error }`. JIRA's `errorMessages` array is surfaced inline in the dialog.
+- **Field metadata**: reuses `useFields(connectionId)` (5-min cached) and `FieldPicker` from the gadget config system — no new JIRA endpoints for value suggestions.
+- **Builder state is ephemeral**: not persisted, no Zod schema changes needed. Opening the dialog always starts with one empty row; Apply overwrites the textarea.
 
 ## Conventions when extending
 

@@ -103,6 +103,13 @@ export type SearchResult = {
 export const SEARCH_PAGE_SIZE = 100;
 export const SEARCH_ROW_CAP = 5000;
 
+export async function validateJql(creds: JiraCreds, jql: string): Promise<void> {
+  await request(creds, "/rest/api/3/search/jql", {
+    method: "POST",
+    body: JSON.stringify({ jql, maxResults: 0, fields: ["summary"] }),
+  });
+}
+
 export async function searchAll(
   creds: JiraCreds,
   jql: string,
