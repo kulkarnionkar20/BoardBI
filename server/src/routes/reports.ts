@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { decrypt } from "../jira/crypto.js";
@@ -44,6 +45,30 @@ const UpdateReport = z.object({
   layout: z.array(LayoutItem).optional(),
   pageSlicers: z.array(PageSlicer).optional(),
   gadgets: z.array(GadgetInput).optional(),
+});
+
+const ReportExport = z.object({
+  name: z.string().min(1).max(160),
+  description: z.string().max(2000).nullable().optional(),
+  jql: z.string().default(""),
+  layout: z.array(LayoutItem).default([]),
+  pageSlicers: z.array(PageSlicer).default([]),
+  gadgets: z.array(GadgetInput).default([]),
+});
+
+const ExportFile = z.object({
+  version: z.literal(1),
+  exportedAt: z.string(),
+  reports: z.array(ReportExport),
+});
+
+const ExportRequest = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+});
+
+const ImportRequest = z.object({
+  connectionId: z.string().min(1),
+  file: ExportFile,
 });
 
 function shapeReport(r: {
@@ -218,6 +243,101 @@ router.post("/:id/data", async (req, res) => {
     }
     throw err;
   }
+});
+
+router.post("/export", async (req, res) => {
+  const parsed = ExportRequest.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+  const items = await prisma.report.findMany({
+    where: { id: { in: parsed.data.ids } },
+    include: { gadgets: true },
+  });
+  const reports = items.map((r) => {
+    const shaped = shapeReport(r);
+    return {
+      name: shaped.name,
+      description: shaped.description,
+      jql: shaped.jql,
+      layout: shaped.layout,
+      pageSlicers: shaped.pageSlicers,
+      gadgets: shaped.gadgets,
+    };
+  });
+  res.json({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    reports,
+  });
+});
+
+router.post("/import", async (req, res) => {
+  const parsed = ImportRequest.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+  const conn = await prisma.jiraConnection.findUnique({
+    where: { id: parsed.data.connectionId },
+  });
+  if (!conn) {
+    res.status(400).json({ error: "Unknown connectionId" });
+    return;
+  }
+
+  const existing = await prisma.report.findMany({ select: { name: true } });
+  const usedNames = new Set(existing.map((r) => r.name));
+  function uniqueName(base: string): string {
+    if (!usedNames.has(base)) {
+      usedNames.add(base);
+      return base;
+    }
+    let n = 1;
+    while (true) {
+      const candidate = n === 1 ? `${base} (imported)` : `${base} (imported ${n})`;
+      if (!usedNames.has(candidate)) {
+        usedNames.add(candidate);
+        return candidate;
+      }
+      n++;
+    }
+  }
+
+  const created = [];
+  for (const r of parsed.data.file.reports) {
+    const idMap = new Map<string, string>();
+    for (const g of r.gadgets) idMap.set(g.id, randomUUID());
+    const remappedLayout = r.layout
+      .filter((l) => idMap.has(l.i))
+      .map((l) => ({ ...l, i: idMap.get(l.i)! }));
+
+    const row = await prisma.report.create({
+      data: {
+        name: uniqueName(r.name),
+        description: r.description ?? null,
+        connectionId: parsed.data.connectionId,
+        jql: r.jql,
+        layout: JSON.stringify(remappedLayout),
+        pageSlicers: JSON.stringify(r.pageSlicers),
+        gadgets: {
+          create: r.gadgets.map((g) => {
+            const newId = idMap.get(g.id)!;
+            return {
+              id: newId,
+              i: newId,
+              type: g.type,
+              config: JSON.stringify(g.config),
+            };
+          }),
+        },
+      },
+      include: { gadgets: true },
+    });
+    created.push(shapeReport(row));
+  }
+  res.status(201).json(created);
 });
 
 router.get("/:id/data/latest", async (req, res) => {

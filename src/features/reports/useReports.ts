@@ -3,6 +3,7 @@ import { HTTPError } from "ky";
 import { api } from "../../lib/api";
 import type {
   CreateReportInput,
+  ExportFile,
   Report,
   ReportData,
   UpdateReportInput,
@@ -77,5 +78,21 @@ export function useRefreshData(id: string) {
   return useMutation({
     mutationFn: () => api.post(`reports/${id}/data`, { timeout: 120_000 }).json<ReportData>(),
     onSuccess: (data) => qc.setQueryData(dataKey(id), data),
+  });
+}
+
+export function useExportReports() {
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      api.post("reports/export", { json: { ids } }).json<ExportFile>(),
+  });
+}
+
+export function useImportReports() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { connectionId: string; file: ExportFile }) =>
+      api.post("reports/import", { json: body }).json<Report[]>(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }

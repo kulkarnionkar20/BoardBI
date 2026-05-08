@@ -75,7 +75,7 @@ BoardBI/
 │       ├── middleware/auth.ts   # no-op seam for v2 auth
 │       └── routes/
 │           ├── connections.ts   # CRUD + /:id/test
-│           ├── reports.ts       # CRUD + /:id/data + /:id/data/latest
+│           ├── reports.ts       # CRUD + /:id/data + /:id/data/latest + /export + /import
 │           └── fields.ts        # 24h FieldCache TTL
 └── src/
     ├── main.tsx
@@ -132,6 +132,15 @@ These items appear in the original plan but are deferred. The codebase is shaped
 - **Drill-through to a separate filtered view-page** (current implementation is a modal — sufficient for now).
 - **Multi-user auth**: `server/src/middleware/auth.ts` is the seam. Adding sessions/JWT/OAuth later is a one-file middleware swap plus an `ownerId` column on `JiraConnection` and `Report`.
 
+## Export / import
+
+Reports can be exported to a JSON file and re-imported on any BoardBI install.
+
+- **Export**: `POST /api/reports/export` body `{ ids }` → `{ version: 1, exportedAt, reports[] }`. Each report entry contains `name`, `description`, `jql`, `layout`, `pageSlicers`, and `gadgets` — no `id`, `connectionId`, or snapshot rows.
+- **Import**: `POST /api/reports/import` body `{ connectionId, file }`. Each imported report gets a fresh `cuid`; gadget IDs are regenerated and layout `i` keys remapped to match. Names are deduplicated with ` (imported)` / ` (imported 2)` suffixes. No field-existence validation — if the target JIRA instance is missing a referenced field, the next data refresh will surface the error.
+- **UI**: `ReportsPage` has per-row checkboxes, a bulk **Export selected** button, a per-row **Export** button, and an **Import…** button that opens an inline dialog (file picker + connection dropdown).
+- `connectionId` is always install-specific and is never included in the export. JIRA field IDs (`customfield_*`) inside gadget configs and slicer `field` values are JIRA-instance-specific; they round-trip fine when the same JIRA site is used on both ends.
+
 ## Conventions when extending
 
 - TypeScript strict mode, both projects.
@@ -142,8 +151,7 @@ These items appear in the original plan but are deferred. The codebase is shaped
 - Aggregate-shape primitives live in `lib/`. Gadget-specific logic lives in the gadget file.
 - All slicer/gadget changes that affect persistence need a matching Zod schema update in `server/src/routes/reports.ts`.
 
-## Cleanup before pushing
+## Before pushing
 
-- `Test.txt` at the repo root is leftover from the initial commit. Remove if you don't want it.
 - `server/dev.db` is gitignored; do not commit.
 - `server/.env` is gitignored; ensure your `APP_ENCRYPTION_KEY` is NOT committed.

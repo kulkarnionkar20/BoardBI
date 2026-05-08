@@ -56,3 +56,18 @@ export type ReportData = {
   total?: number;
   rows: JiraIssue[];
 };
+
+export type ReportExport = {
+  name: string;
+  description: string | null;
+  jql: string;
+  layout: LayoutItem[];
+  pageSlicers: Slicer[];
+  gadgets: GadgetDef[];
+};
+
+export type ExportFile = {
+  version: 1;
+  exportedAt: string;
+  reports: ReportExport[];
+};
